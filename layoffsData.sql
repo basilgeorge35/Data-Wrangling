@@ -1,6 +1,8 @@
 SELECT * 
 FROM layoffs;
 
+-- Creating a staging table to alter it without affecting raw data.
+
 CREATE TABLE layoffs_staging
 LIKE layoffs;
 
@@ -14,10 +16,14 @@ FROM layoffs_staging;
 
 -- Steps:
 -- Removing Duplicates
+-- Standardising the data
+-- Handling NULL and blank values
+-- Removing unnecessary rows and columns
 
 
 -- 1. Removing Duplicates
 
+-- CTE to identify duplicate rows
 WITH duplicate_cte AS (
 	SELECT *,
 	ROW_NUMBER() OVER(PARTITION BY company, location, industry, `date`, stage, country) AS row_num
@@ -29,7 +35,8 @@ WHERE row_num > 1
 ;
 
 
-
+-- In mysql we cannot directly delete rows within cte (unlike SQL Server).
+-- saving results to new table layoffs_staging2 so that we can remove duplicate rows from it.
 CREATE TABLE `layoffs_staging2` (
   `company` text,
   `location` text,
@@ -58,3 +65,119 @@ FROM layoffs_staging;
 DELETE
 FROM layoffs_staging2
 WHERE row_num > 1;
+
+
+-- 2. Standardising the data
+
+-- Removing leading and trailing from rows
+SELECT country
+FROM layoffs_staging2
+WHERE country LIKE ' %' OR country LIKE '% '
+;
+
+SELECT company, TRIM(company)
+FROM layoffs_staging2;
+
+UPDATE layoffs_staging2
+SET company = TRIM(company);
+
+
+-- Combining similar data points
+
+SELECT DISTINCT industry
+FROM layoffs_staging2
+ORDER BY industry
+;
+
+SELECT *
+FROM layoffs_staging2
+WHERE industry LIKE 'Crypto%' ;
+
+UPDATE layoffs_staging2
+SET industry = 'Crypto'
+WHERE industry LIKE 'Crypto%' ;
+
+SELECT DISTINCT country
+FROM layoffs_staging2
+ORDER BY country
+;
+
+SELECT *
+FROM layoffs_staging2
+WHERE country LIKE 'United States%' ;
+
+UPDATE layoffs_staging2
+SET country = TRIM(TRAILING '.' FROM country)
+WHERE country LIKE 'United States%' ;
+
+-- Converting date in text format to Date format of SQL
+
+SELECT `date`, 
+	STR_TO_DATE(`date`, '%m/%d/%Y')
+FROM layoffs_staging2 ;
+
+UPDATE layoffs_staging2
+SET `date` = STR_TO_DATE(`date`, '%m/%d/%Y') ;
+
+SELECT `date`
+FROM layoffs_staging2 ;
+
+ALTER TABLE layoffs_staging2
+MODIFY COLUMN `date` DATE ;
+
+DESCRIBE layoffs_staging2 ;
+
+-- 3. Handling NULL and blank values
+
+SELECT *
+FROM layoffs_staging2
+WHERE industry IS NULL 
+	OR industry = '';
+    
+SELECT t1.company, t1.industry, t2.industry
+FROM layoffs_staging2 t1
+JOIN layoffs_staging2 t2
+	ON t1.company = t2.company 
+    AND t1.location = t2.location
+WHERE (t1.industry IS NULL OR t1.industry = '')
+	AND (t2.industry IS NOT NULL AND t2.industry != '')
+;
+
+UPDATE layoffs_staging2 t1
+JOIN layoffs_staging2 t2
+	ON t1.company = t2.company 
+    AND t1.location = t2.location
+SET t1.industry = t2.industry
+WHERE (t1.industry IS NULL OR t1.industry = '')
+	AND (t2.industry IS NOT NULL AND t2.industry != '')
+;
+
+
+-- 4. Removing unnecessary rows and columns
+
+-- removing the temporary row_num column we created
+ALTER TABLE layoffs_staging2
+DROP COLUMN row_num;
+
+SELECT *
+FROM layoffs_staging2;
+
+-- rows were both total_laid_off and percentage_laid_off are NULL are useless for analysis
+SELECT * 
+FROM layoffs_staging2
+WHERE total_laid_off IS NULL 
+	AND percentage_laid_off IS NULL
+;
+
+DELETE 
+FROM layoffs_staging2
+WHERE total_laid_off IS NULL 
+	AND percentage_laid_off IS NULL
+;
+
+
+
+-- Final table for analysis:
+
+SELECT *
+FROM layoffs_staging2;
