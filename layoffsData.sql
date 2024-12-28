@@ -176,8 +176,77 @@ WHERE total_laid_off IS NULL
 ;
 
 
-
 -- Final table for analysis:
 
 SELECT *
 FROM layoffs_staging2;
+
+-- -------------------------- --
+-- EXPLORITORY DATA ANALYSIS  --
+
+
+-- Time duration of the dataset.
+SELECT MAX(`date`), MIN(`date`)
+FROM layoffs_staging2 ;
+
+
+-- Top 10 countries with the highest layoffs
+SELECT Country, SUM(total_laid_off)
+FROM layoffs_staging2
+GROUP BY country
+ORDER BY SUM(total_laid_off) DESC
+LIMIT 10
+;
+
+
+-- Companies industry wise with the highest layoffs
+SELECT company, industry, country, SUM(total_laid_off)
+FROM layoffs_staging2
+WHERE industry IS NOT NULL
+GROUP BY company
+HAVING SUM(total_laid_off) IS NOT NULL
+ORDER BY industry, SUM(total_laid_off) DESC
+;
+
+
+-- Laidoff each year
+SELECT YEAR(`date`), SUM(total_laid_off)
+FROM layoffs_staging2
+WHERE YEAR(`date`) IS NOT NULL
+GROUP BY YEAR(`date`)
+ORDER BY YEAR(`date`) DESC
+;
+
+-- Rolling total of laidoff monthwise 
+WITH Rolling_total AS (
+SELECT SUBSTRING(`date`, 1 , 7) AS `Month`, SUM(total_laid_off) AS total_off
+FROM layoffs_staging2
+WHERE SUBSTRING(`date`, 1 , 7) IS NOT NULL
+GROUP BY `Month`
+ORDER BY `Month`
+)
+SELECT `Month`, total_off,
+SUM(total_off) OVER(ORDER BY `Month`) AS rolling_total
+FROM Rolling_total
+;
+
+
+-- Top 5 companies that laidoff each year
+WITH company_year AS 
+	(
+	SELECT company, YEAR(`date`) AS years, SUM(total_laid_off) AS total_off
+	FROM layoffs_staging2
+	GROUP BY company, YEAR(`date`)
+	ORDER BY company
+	),
+ranking_cte AS
+	(
+	SELECT company, years, total_off,
+	DENSE_RANK() OVER(PARTITION BY years ORDER BY total_off DESC) AS ranking
+	FROM company_year
+    WHERE years IS NOT NULL
+	)
+SELECT * 
+FROM ranking_cte
+WHERE ranking <= 5
+;
